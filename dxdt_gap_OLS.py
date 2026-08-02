@@ -28,12 +28,16 @@ model = sm.OLS(v_speeding, X)
 results = model.fit()
 
 w_hat = results.params[0]
+w_se = results.bse[0]
 eps_hat = results.params[1]
+eps_se = results.bse[1]
 
 print("--- First-Order Simulated Lead Car Gap Regression ---")
 print(results.summary())
-print(f"\nExtracted \u03B5 (Slope): {eps_hat:.5f}")
-print(f"Extracted w (Intercept): {w_hat:.5f}")
+print("Extracted Parameters:")
+print(f"Epsilon (\u03B5): {eps_hat:.5f} \u00B1 {eps_se:.5f}")
+print(f"Disturbance (w): {w_hat:.5f} \u00B1 {w_se:.5f}")
+print(f"R-squared: {results.rsquared:.4f}")
 
 # 5. Plotting
 fig, ax = plt.subplots(figsize=(8, 5))
@@ -44,7 +48,7 @@ ax.plot(gap_range, eps_hat * gap_range + w_hat, color='red', linestyle='--', lab
 
 ax.set_xlabel('Relative Gap Error (m)')
 ax.set_ylabel('Speeding Car Velocity $dx/dt$ (m/s)')
-ax.set_title('First-Order Simulated Lead Car Model: $dx/dt = \epsilon \cdot gap + w$')
+ax.set_title('Model 1: $dx/dt = \epsilon \cdot gap + w$')
 ax.grid(True, linestyle=':')
 ax.legend(fontsize='small')
 
