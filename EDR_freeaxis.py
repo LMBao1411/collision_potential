@@ -63,9 +63,8 @@ def evaluate_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> 
         
     return h2_data
 
-# 3. MAIN SIMULATION EXECUTION
-n_nodes = 500       # Total number of vehicles in the platoon
-bias = 0.0135        # Asymmetry parameter (epsilon)
+n_nodes = 50
+bias = 0.02
 pairs_range = np.arange(1, n_nodes) 
 
 rpav_sym_no = evaluate_h2_profile(n_nodes, 0.0, 'RPAV', False)

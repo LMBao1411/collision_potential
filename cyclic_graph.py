@@ -94,8 +94,8 @@ def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bo
     return h2_data
 
 # Execution Parameters
-n_nodes = 200
-bias = 0.01
+n_nodes = 50
+bias = 0.02
 
 pairs_range = np.arange(n_nodes)
 
