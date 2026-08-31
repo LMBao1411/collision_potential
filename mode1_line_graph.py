@@ -35,8 +35,8 @@ def create_platoon_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np
 
 # 2. SYSTEM DYNAMICS & H2 NORM EVALUATION
 def evaluate_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> np.ndarray:
-    alpha_pin = 0.5 if leader else 0.0
-    beta_pin = 0.5 if leader else 0.0
+    alpha_pin = 0.3174 if leader else 0.0
+    beta_pin = 0.126 if leader else 0.0
     
     L_alpha = create_platoon_laplacian(n, epsilon, alpha_pin)
     if not leader:
@@ -64,7 +64,7 @@ def evaluate_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> 
     return h2_data
 
 n_nodes = 50
-bias = 0.02
+bias = 0.07531
 pairs_range = np.arange(1, n_nodes) 
 
 rpav_sym_no = evaluate_h2_profile(n_nodes, 0.0, 'RPAV', False)

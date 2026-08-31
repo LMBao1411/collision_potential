@@ -1,21 +1,56 @@
 import numpy as np
 import scipy.linalg as la
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, ScalarFormatter
+
+N_VALUES = (3, 10, 20, 50) 
+EPSILON = 0.02 
+PIN_GAIN = 0.5
+PANEL_W = 4.20 
+PANEL_H = 2.25 
+LEGEND_H = 0.42
+XLABEL_H = 0.30 
+BASE_FONT = 10   
+
+YLABEL_PAD = 8.0  
+XLABEL_PAD = 6.0  
+TITLE_PAD = 8.0    
+
+mpl.rcParams.update({
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "DejaVu Serif"],
+    "mathtext.fontset": "stix",
+    "font.size": BASE_FONT,
+    "axes.titlesize": BASE_FONT,
+    "axes.labelsize": BASE_FONT,
+    "xtick.labelsize": BASE_FONT,
+    "ytick.labelsize": BASE_FONT,
+    "legend.fontsize": BASE_FONT,
+    "lines.linewidth": 1.0,
+    "axes.linewidth": 0.6,
+    "figure.dpi": 150,
+    "figure.constrained_layout.use": True,
+    "figure.constrained_layout.h_pad": 0.03,
+    "figure.constrained_layout.w_pad": 0.05,
+    "figure.constrained_layout.wspace": 0.06,
+})
+
+STYLES = {
+    "sym_unpinned": dict(color="k",       linestyle="-",            label="Symmetric, unpinned"),
+    "asy_unpinned": dict(color="#D62728", linestyle="-",            label="Asymmetric, unpinned"),
+    "sym_pinned":   dict(color="k",       linestyle="--",           label="Symmetric, pinned"),
+    "asy_pinned":   dict(color="#D62728", linestyle=(0, (1, 1.4)),  label="Asymmetric, pinned"),
+}
+WIDTHS = {"sym_unpinned": 1.0, "asy_unpinned": 1.0,
+          "sym_pinned": 1.1, "asy_pinned": 1.4}
+
 
 def create_roundabout_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np.ndarray:
     """
     Constructs an n x n Laplacian matrix for a cyclic graph (roundabout) topology.
     Forward edges have weight 1 - epsilon, backward edges have weight 1 + epsilon.
     A pinning gain anchors the first node if specified, breaking perfect symmetry.
-
-    Parameters:
-    n (int): Total number of vehicles in the roundabout.
-    epsilon (float): Directional asymmetry bias.
-    pinning (float): Absolute reference anchoring gain applied to node 0.
-
-    Returns:
-    np.ndarray: The finalized Laplacian/Metzler matrix.
     """
     L = np.zeros((n, n))
     for i in range(n):
@@ -28,47 +63,33 @@ def create_roundabout_laplacian(n: int, epsilon: float, pinning: float = 0.0) ->
         L[i, next_idx] = -1.0 + epsilon
 
     # Apply absolute reference anchoring to the first vehicle
-    L[0,0] += pinning
+    L[0, 0] += pinning
     return L
 
+
 def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> np.ndarray:
-    """
-    Computes the spatial H2 norm (gap variance) profile for a cyclic platoon.
+    """ Computes the spatial H2 norm (gap variance) profile for a cyclic platoon."""
+    alpha_pin = PIN_GAIN if leader else 0.0
+    beta_pin = PIN_GAIN if leader else 0.0
 
-    Parameters:
-    n (int): Total number of vehicles.
-    epsilon (float): Directional asymmetry bias.
-    dynamics (str): Control architecture ('RPAV' or 'RPRV').
-    leader (bool): Boolean flag indicating presence of an anchored leader.
-
-    Returns:
-    np.ndarray: Array of length n containing the steady-state gap variance for each pair.
-    """
-    # Define anchoring gains based on the leader parameter
-    alpha_pin = 0.5 if leader else 0.0
-    beta_pin = 0.5 if leader else 0.0
-
-    # Construct the position Laplacian
     L_alpha = create_roundabout_laplacian(n, epsilon, alpha_pin)
 
-    # Apply regularization if the system lacks an absolute spatial anchor
-    # This prevents the CALE solver from failing due to the zero eigenvalue
+    # Regularization when the system lacks an absolute spatial anchor,
+    # preventing the CALE solver from failing due to the zero eigenvalue
     if not leader:
         L_alpha += 1e-7 * np.eye(n)
 
-    # Construct the closed-loop system matrix A based on the chosen dynamics
     if dynamics == 'RPAV':
-        # Absolute velocity damping (Identity matrix block)
-        A = np.block([[np.zeros((n, n)),     np.eye(n)],
-                    [-L_alpha,             -np.eye(n)]])
+        # Absolute velocity damping (identity block)
+        A = np.block([[np.zeros((n, n)), np.eye(n)],
+                      [-L_alpha,         -np.eye(n)]])
     elif dynamics == 'RPRV':
-        # Relative velocity damping (Velocity Laplacian block)
+        # Relative velocity damping (velocity Laplacian block)
         L_beta = create_roundabout_laplacian(n, epsilon, beta_pin)
         if not leader:
             L_beta += 1e-7 * np.eye(n)
-
-        A = np.block([[np.zeros((n, n)),   np.eye(n)],
-                       [-L_alpha,          -L_beta]])
+        A = np.block([[np.zeros((n, n)), np.eye(n)],
+                      [-L_alpha,         -L_beta]])
     else:
         raise ValueError("Invalid dynamics specified. Choose 'RPAV' or 'RPRV'.")
 
@@ -76,69 +97,64 @@ def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bo
     B = np.block([[np.zeros((n, n))],
                   [np.eye(n)]])
 
-    # Solve the Continuous Algebraic Lyapunov Equation (CALE) for the Gramian
     W_c = la.solve_continuous_lyapunov(A, -B @ B.T)
-
-    # Extract the variance for all n gaps in the roundabout
     h2_data = np.zeros(n)
     for i in range(n):
-        # Output selector matrix C for gap i
         C = np.zeros((1, 2 * n))
         C[0, i] = 1.0
-        C[0, (i + 1) % n] = -1.0  # Periodic wrap-around for the final gap
-
-        # Compute H2 norm squared (variance)
-        variance = C @ W_c @ C.T
-        h2_data[i] = variance.item()
+        C[0, (i + 1) % n] = -1.0  # periodic wrap-around for the final gap
+        h2_data[i] = (C @ W_c @ C.T).item()
 
     return h2_data
 
-# Execution Parameters
-n_nodes = 50
-bias = 0.02
+def profiles(n: int, epsilon: float, dynamics: str) -> dict:
+    return {
+        "sym_unpinned": evaluate_cyclic_h2_profile(n, 0.0,     dynamics, False),
+        "asy_unpinned": evaluate_cyclic_h2_profile(n, epsilon, dynamics, False),
+        "sym_pinned":   evaluate_cyclic_h2_profile(n, 0.0,     dynamics, True),
+        "asy_pinned":   evaluate_cyclic_h2_profile(n, epsilon, dynamics, True),
+    }
 
-pairs_range = np.arange(n_nodes)
+def draw_panel(ax, x, curves, title):
+    for key, y in curves.items():
+        ax.plot(x, y, linewidth=WIDTHS[key], **STYLES[key])
+    ax.set_title(title, pad=TITLE_PAD)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    fmt = ScalarFormatter(useOffset=True)
+    fmt.set_powerlimits((-3, 4))
+    ax.yaxis.set_major_formatter(fmt)
+    ax.yaxis.get_offset_text().set_size(BASE_FONT)
+    ax.margins(x=0.02)
+    ax.grid(True, linestyle=':', linewidth=0.4, alpha=0.7)
+    ax.tick_params(width=0.6, length=2.5, pad=2.5)
 
-# RPAV Configurations
-rpav_sym_no = evaluate_cyclic_h2_profile(n_nodes, 0.0, 'RPAV', False)
-rpav_asy_no = evaluate_cyclic_h2_profile(n_nodes, bias, 'RPAV', False)
-rpav_sym_wL = evaluate_cyclic_h2_profile(n_nodes, 0.0, 'RPAV', True)
-rpav_asy_wL = evaluate_cyclic_h2_profile(n_nodes, bias, 'RPAV', True)
 
-# RPRV Configurations
-rprv_sym_no = evaluate_cyclic_h2_profile(n_nodes, 0.0, 'RPRV', False)
-rprv_asy_no = evaluate_cyclic_h2_profile(n_nodes, bias, 'RPRV', False)
-rprv_sym_wL = evaluate_cyclic_h2_profile(n_nodes, 0.0, 'RPRV', True)
-rprv_asy_wL = evaluate_cyclic_h2_profile(n_nodes, bias, 'RPRV', True)
+def make_figure(n: int, epsilon: float, show_legend: bool = False):
+    x = np.arange(n)
+    strip = (LEGEND_H + XLABEL_H) if show_legend else 0.0
+    height = PANEL_H + strip
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(PANEL_W, height), layout="constrained", num=f"n = {n}")
+    if show_legend:
+        frac = strip / height
+        fig.get_layout_engine().set(rect=(0, frac, 1, 1 - frac))
+    draw_panel(ax1, x, profiles(n, epsilon, 'RPAV'), 'RPAV')
+    draw_panel(ax2, x, profiles(n, epsilon, 'RPRV'), 'RPRV')
+    supx = fig.supxlabel(r'Vehicle pair index $i$')
+    fig.supylabel(r'Gap variance $\|G_k\|_{\mathcal{H}_2}^2$')
+    if show_legend:
+        handles, labels = ax1.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', ncol=2, frameon=False, handlelength=2.6, columnspacing=1.2, handletextpad=0.5, bbox_to_anchor=(0.5, 0.0))
+    fig.canvas.draw()
+    fig.set_layout_engine('none')
+    b1, b2 = ax1.get_position(), ax2.get_position()
+    supx.set_x(0.5 * (b1.x0 + b2.x1))
+    if show_legend:
+        supx.set_y(LEGEND_H / height)
+    return fig
 
-# Plotting
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
-# RPAV
-ax1.plot(pairs_range, rpav_sym_no, '-', color='tab:blue', label='Sym RPAV no/L')
-ax1.plot(pairs_range, rpav_asy_no, '-', color='tab:red', label='Asy RPAV no/L')
-ax1.plot(pairs_range, rpav_sym_wL, '--', color='tab:green', label='Sym RPAV w/L')
-ax1.plot(pairs_range, rpav_asy_wL, ':', color='k', label='Asy RPAV w/L')
-ax1.set_xlabel('Vehicle Pair Along Cycle (Spatial Index $i$)')
-ax1.set_ylabel(r'Gap Variance / Collision Potential $||G_k||_{\mathcal{H}_2}^2$')
-ax1.set_title('(a) RPAV Control in Roundabout Topology', fontsize=11)
-ax1.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=8))
-ax1.margins(x=0)
-ax1.legend(fontsize='small', ncol=2)
-ax1.grid(True, linestyle=':')
-
-# RPRV
-ax2.plot(pairs_range, rprv_sym_no, '-', color='tab:blue', label='Sym RPRV no/L')
-ax2.plot(pairs_range, rprv_asy_no, '-', color='tab:red', label='Asy RPRV no/L')
-ax2.plot(pairs_range, rprv_sym_wL, '--', color='tab:orange', label='Sym RPRV w/L')
-ax2.plot(pairs_range, rprv_asy_wL, ':', color='k', label='Asy RPRV w/L')
-ax2.set_xlabel('Vehicle Pair Along Cycle (Spatial Index $i$)')
-ax2.set_ylabel(r'Gap Variance / Collision Potential $||G_k||_{\mathcal{H}_2}^2$')
-ax2.set_title('(b) RPRV Control in Roundabout Topology', fontsize=11)
-ax2.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=8))
-ax2.margins(x=0)
-ax2.legend(fontsize='small', ncol=2)
-ax2.grid(True, linestyle=':')
-
-plt.tight_layout()
-plt.show()
+if __name__ == "__main__":
+    for n in N_VALUES:
+        make_figure(n, EPSILON, show_legend=True)
+    plt.show()
