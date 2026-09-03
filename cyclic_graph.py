@@ -37,13 +37,16 @@ mpl.rcParams.update({
 })
 
 STYLES = {
-    "sym_unpinned": dict(color="k",       linestyle="-",            label="Symmetric, unpinned"),
-    "asy_unpinned": dict(color="#D62728", linestyle="-",            label="Asymmetric, unpinned"),
-    "sym_pinned":   dict(color="k",       linestyle="--",           label="Symmetric, pinned"),
-    "asy_pinned":   dict(color="#D62728", linestyle=(0, (1, 1.4)),  label="Asymmetric, pinned"),
+    "sym_unpinned": dict(color="#0072BD", linestyle="-",            marker="o",
+                         markersize=3.1, markerfacecolor="#0072BD",
+                         markeredgecolor="#0072BD", markeredgewidth=0.0,
+                         label="Symmetric, unpinned"),
+    "asy_unpinned": dict(color="#D95319", linestyle="-",            label="Asymmetric, unpinned"),
+    "sym_pinned":   dict(color="#EDB120", linestyle=(0, (5, 2.5)),  label="Symmetric, pinned"),
+    "asy_pinned":   dict(color="#7E2F8E", linestyle=(0, (1, 1.6)),  label="Asymmetric, pinned"),
 }
-WIDTHS = {"sym_unpinned": 1.0, "asy_unpinned": 1.0,
-          "sym_pinned": 1.1, "asy_pinned": 1.4}
+WIDTHS = {"sym_unpinned": 0.8, "asy_unpinned": 1.0,
+          "sym_pinned": 1.2, "asy_pinned": 1.4}
 
 
 def create_roundabout_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np.ndarray:
@@ -116,8 +119,12 @@ def profiles(n: int, epsilon: float, dynamics: str) -> dict:
     }
 
 def draw_panel(ax, x, curves, title):
+    step = max(1, len(x) // 25)
     for key, y in curves.items():
-        ax.plot(x, y, linewidth=WIDTHS[key], **STYLES[key])
+        style = dict(STYLES[key])
+        if "marker" in style:
+            style["markevery"] = step
+        ax.plot(x, y, linewidth=WIDTHS[key], **style)
     ax.set_title(title, pad=TITLE_PAD)
     ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
@@ -141,7 +148,7 @@ def make_figure(n: int, epsilon: float, show_legend: bool = False):
     draw_panel(ax1, x, profiles(n, epsilon, 'RPAV'), 'RPAV')
     draw_panel(ax2, x, profiles(n, epsilon, 'RPRV'), 'RPRV')
     supx = fig.supxlabel(r'Vehicle pair index $i$')
-    fig.supylabel(r'Gap variance $\|G_k\|_{\mathcal{H}_2}^2$')
+    fig.supylabel(r'$\|G_k\|_{\mathcal{H}_2}^2$')
     if show_legend:
         handles, labels = ax1.get_legend_handles_labels()
         fig.legend(handles, labels, loc='lower center', ncol=2, frameon=False, handlelength=2.6, columnspacing=1.2, handletextpad=0.5, bbox_to_anchor=(0.5, 0.0))
@@ -156,5 +163,5 @@ def make_figure(n: int, epsilon: float, show_legend: bool = False):
 
 if __name__ == "__main__":
     for n in N_VALUES:
-        make_figure(n, EPSILON, show_legend=True)
+        make_figure(n, EPSILON, show_legend=False)
     plt.show()

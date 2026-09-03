@@ -3,81 +3,49 @@ import statsmodels.api as sm
 import matplotlib.pyplot as plt
 from scipy.integrate import cumulative_trapezoid
 
-time = np.array([-5.0, -4.5, -4.0, -3.5, -3.0, -2.5, -2.0, -1.5, -1.0, -0.5, 0.0])
-v = np.array([30.83, 32.78, 34.72, 36.39, 38.06, 39.17, 40.56, 41.94, 43.06, 44.17, 45.00]) # (m/s)
+V0 = 45.00                 # (m/s)
+dt = 0.01                  # (s), 100 Hz
+time = np.arange(20) * dt  # 0 to 190 ms
 
-# Calculate acceleration (dv/dt) using finite difference
-dt = 0.5        # The time step between every intervals = 0.5 seconds
-dvdt = np.gradient(v, dt)
+dv = np.array([  0.00,  -1.67,  -3.33,  -8.61, -14.72,
+               -17.50, -19.72, -20.83, -22.50, -23.61,
+               -24.44, -25.28, -25.83, -26.11, -26.67,
+               -26.94, -26.94, -27.22, -27.22, -27.22])   # (m/s)
+v = V0 + dv               # absolute speed (m/s)
 
-# Calculate displacement (x) by integrating velocity over time
-x = cumulative_trapezoid(v, time, initial=0)
+# Crush displacement by the trapezoidal rule, origin at t0
+x = cumulative_trapezoid(v, time, initial=0)    # (m), spans 4.72 m
 
-# STATSMODELS OLS REGRESSION EXECUTION
-def fit_and_evaluate_model(dependent_y, independent_x, model_name):
-    """ Fits an OLS regression model and extracts performance metrics. """
-    # sm.add_constant adds a column of 1s so the model fits an intercept (w)
-    X = sm.add_constant(independent_x)
-    model = sm.OLS(dependent_y, X)
-    results = model.fit()
-    
-    # Extract coefficients and performance metrics
-    w_hat = results.params[0]
-    eps_hat = results.params[1]
-    w_se = results.bse[0]
-    eps_se = results.bse[1]
-    
-    print(f"--- Model: {model_name} ---")
-    print(results.summary())
-    print("\nExtracted Parameters:")
-    print(f"Epsilon (\u03B5): {eps_hat:.5f} \u00B1 {eps_se:.5f}")
-    print(f"Disturbance (w): {w_hat:.5f} \u00B1 {w_se:.5f}")
-    print(f"R-squared: {results.rsquared:.4f}\n")
-    
-    return results, eps_hat, w_hat
+# dx/dt = -alpha * x + w
+results = sm.OLS(v, sm.add_constant(x)).fit()
 
-# Model 0: dv/dt = \epsilon * v + w
-res_0, eps_0, w_0 = fit_and_evaluate_model(dvdt, v, "dv/dt = \u03B5*v + w")
+w_hat, slope = results.params[0], results.params[1]
+w_se, slope_se = results.bse[0], results.bse[1]
+alpha_hat, alpha_se = -slope, slope_se
 
-# Model 1: dx/dt = \epsilon * x + w (Note: dx/dt is velocity v)
-res_1, eps_1, w_1 = fit_and_evaluate_model(v, x, "dx/dt = \u03B5*x + w")
+print("First order fit: dx/dt = -\u03B1*x + w  (crash-pulse segment)")
+print(results.summary())
+print("\nExtracted Parameters:")
+print(f"Alpha (\u03B1): {alpha_hat:.4f} \u00B1 {alpha_se:.4f}")
+print(f"Disturbance (w): {w_hat:.4f} \u00B1 {w_se:.4f}")
+print(f"R-squared: {results.rsquared:.4f}")
+ALPHA_GAIN = abs(alpha_hat)
+print(f"\nALPHA_GAIN for L_alpha <- alpha*L : {ALPHA_GAIN:.4f}")
+print(f"Crush displacement span: {x[-1]:.3f} m")
 
-# Model 2: dv/dt = \epsilon * x + w
-res_2, eps_2, w_2 = fit_and_evaluate_model(dvdt, x, "dv/dt = \u03B5*x + w")
-
-# PLOTTING REGRESSION FITS
-fig, axs = plt.subplots(1, 3, figsize=(18, 5))
-
-# Common Plotting Function ensuring strict margin compliance
-def format_regression_plot(ax, x_data, y_data, w_hat, eps_hat, x_label, y_label, title):
-    ax.scatter(x_data, y_data, color='black', label='EDR Data')
-    x_range = np.linspace(min(x_data), max(x_data), 100)
-    ax.plot(x_range, eps_hat * x_range + w_hat, color='red', linestyle='--', label='OLS Fit')
-    
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
-    ax.grid(True, linestyle=':')
-    ax.legend(fontsize='small')
-    
-    # Strict border enforcement: No gap to the border of the graphs
-    ax.margins(0)
-    ax.set_xlim(min(x_data), max(x_data))
-    
-# Plot 1: dv/dt vs v
-format_regression_plot(axs[0], v, dvdt, w_0, eps_0, 
-                       'Velocity $v$ (m/s)', 'Acceleration $dv/dt$ (m/s$^2$)', 
-                       'Model 0: $dv/dt = \epsilon v + w$')
-
-# Plot 2: v vs x
-format_regression_plot(axs[1], x, v, w_1, eps_1, 
-                       'Displacement $x$ (m)', 'Velocity $v$ (m/s)', 
-                       'Model 1: $dx/dt = \epsilon x + w$')
-
-# Plot 3: dv/dt vs x
-format_regression_plot(axs[2], x, dvdt, w_2, eps_2, 
-                       'Displacement $x$ (m)', 'Acceleration $dv/dt$ (m/s$^2$)', 
-                       'Model 2: $dv/dt = \epsilon x + w$')
-
+# plotting
+plt.rcParams.update({"font.size": 14})
+fig, ax = plt.subplots(figsize=(7.0, 5.2))
+ax.scatter(x, v, c='tab:red', s=45, marker='s', zorder=3,
+           label='crash pulse (20)')
+xr = np.linspace(x.min(), x.max(), 200)
+ax.plot(xr, slope * xr + w_hat, 'k--', lw=2,
+        label=fr'OLS: slope={slope:.3f}, $\alpha$={alpha_hat:.3f} 1/s')
+ax.set_xlabel('Crush displacement $x$ (m), origin at $t_0$')
+ax.set_ylabel('$dx/dt = v$ (m/s)')
+ax.set_title('Crash-pulse OLS fitting')
+ax.grid(True, linestyle=':')
+ax.legend(fontsize='medium')
+ax.margins(0)
 plt.tight_layout()
 plt.show()
