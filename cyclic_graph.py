@@ -110,6 +110,8 @@ def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bo
 
     return h2_data
 
+# helper functions to plot the graph
+
 def profiles(n: int, epsilon: float, dynamics: str) -> dict:
     return {
         "sym_unpinned": evaluate_cyclic_h2_profile(n, 0.0,     dynamics, False),
@@ -117,6 +119,20 @@ def profiles(n: int, epsilon: float, dynamics: str) -> dict:
         "sym_pinned":   evaluate_cyclic_h2_profile(n, 0.0,     dynamics, True),
         "asy_pinned":   evaluate_cyclic_h2_profile(n, epsilon, dynamics, True),
     }
+
+def onebased_xticks(first: int, last: int, max_ticks: int = 5):
+    """Integer ticks on [first, last] that always include both endpoints."""
+    span = last - first
+    if span + 1 <= max_ticks:
+        return np.arange(first, last + 1)
+    step = int(np.ceil(span / (max_ticks - 1)))
+    ticks = list(range(first, last + 1, step))
+    if ticks[-1] != last:
+        if last - ticks[-1] < step / 2:
+            ticks[-1] = last
+        else:
+            ticks.append(last)
+    return np.array(ticks)
 
 def draw_panel(ax, x, curves, title):
     step = max(1, len(x) // 25)
@@ -126,7 +142,9 @@ def draw_panel(ax, x, curves, title):
             style["markevery"] = step
         ax.plot(x, y, linewidth=WIDTHS[key], **style)
     ax.set_title(title, pad=TITLE_PAD)
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+    first, last = int(x[0]), int(x[-1])
+    ax.set_xticks(onebased_xticks(first, last))
+    ax.set_xlim(first - 0.02 * max(last - first, 1), last + 0.02 * max(last - first, 1))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
     fmt = ScalarFormatter(useOffset=True)
     fmt.set_powerlimits((-3, 4))
@@ -138,7 +156,7 @@ def draw_panel(ax, x, curves, title):
 
 
 def make_figure(n: int, epsilon: float, show_legend: bool = False):
-    x = np.arange(n)
+    x = np.arange(1, n + 1)
     strip = (LEGEND_H + XLABEL_H) if show_legend else 0.0
     height = PANEL_H + strip
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(PANEL_W, height), layout="constrained", num=f"n = {n}")

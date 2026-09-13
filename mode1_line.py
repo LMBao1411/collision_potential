@@ -9,12 +9,12 @@ EPSILON = 0.02
 ALPHA = 6.20      # position coupling, calibrated from the EDR record
 ALPHA_PIN = 0.50  # position anchoring gain at node 0
 BETA_PIN = 0.50   # velocity anchoring gain at node 0 (RPRV only)
-PANEL_W = 6.20
-PANEL_H = 2.70
+PANEL_W = 5.50
+PANEL_H = 2.90
 LEGEND_H = 0.62
 XLABEL_H = 0.06
-BASE_FONT = 10
-LEGEND_FONT = 8
+BASE_FONT = 15
+LEGEND_FONT = 11
 TITLE_PAD = 8.0
 
 mpl.rcParams.update({
@@ -139,8 +139,8 @@ def make_figure(n: int, epsilon: float, show_legend: bool = False):
         frac = strip / height
         fig.get_layout_engine().set(rect=(0, frac, 1, 1 - frac))
 
-    draw_panel(ax1, x, profiles(n, epsilon, "RPAV"), "RPAV")
-    draw_panel(ax2, x, profiles(n, epsilon, "RPRV"), "RPRV")
+    draw_panel(ax1, x, profiles(n, epsilon, "RPAV"), "Line, RPAV")
+    draw_panel(ax2, x, profiles(n, epsilon, "RPRV"), "Line, RPRV")
 
     supx = fig.supxlabel(r"Vehicle pair index $i$")
     fig.supylabel(r"$\|G_k\|_{\mathcal{H}_2}^2$")
@@ -162,5 +162,5 @@ def make_figure(n: int, epsilon: float, show_legend: bool = False):
 
 
 if __name__ == "__main__":
-    make_figure(N, EPSILON, show_legend=True)
+    make_figure(N, EPSILON, show_legend=False)
     plt.show()
