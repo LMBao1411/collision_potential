@@ -1,7 +1,29 @@
+import os
 import numpy as np
 import statsmodels.api as sm
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy.integrate import cumulative_trapezoid
+
+REL_OUTPUT_DIR = "model1_OLS"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), REL_OUTPUT_DIR)
+
+BASE_FONT, LEGEND_FONT = 14, 12
+
+mpl.rcParams.update({
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "DejaVu Serif"],
+    "mathtext.fontset": "stix",
+    "font.size": BASE_FONT,
+    "axes.titlesize": BASE_FONT,
+    "axes.labelsize": BASE_FONT,
+    "xtick.labelsize": BASE_FONT,
+    "ytick.labelsize": BASE_FONT,
+    "legend.fontsize": LEGEND_FONT,
+    "lines.linewidth": 1.0,
+    "axes.linewidth": 0.6,
+    "figure.dpi": 150,
+})
 
 V0 = 45.00                 # (m/s)
 dt = 0.01                  # (s), 100 Hz
@@ -33,19 +55,22 @@ ALPHA_GAIN = abs(alpha_hat)
 print(f"\nALPHA_GAIN for L_alpha <- alpha*L : {ALPHA_GAIN:.4f}")
 print(f"Crush displacement span: {x[-1]:.3f} m")
 
-# plotting
-plt.rcParams.update({"font.size": 14})
-fig, ax = plt.subplots(figsize=(7.0, 5.2))
-ax.scatter(x, v, c='tab:red', s=45, marker='s', zorder=3,
-           label='crash pulse (20)')
+fig, ax = plt.subplots(figsize=(5.5, 3.6))
+ax.scatter(x, v, c='tab:red', s=18, marker='s', zorder=3,
+           label='crash pulses')
 xr = np.linspace(x.min(), x.max(), 200)
-ax.plot(xr, slope * xr + w_hat, 'k--', lw=2,
-        label=fr'OLS: slope={slope:.3f}, $\alpha$={alpha_hat:.3f} 1/s')
-ax.set_xlabel('Crush displacement $x$ (m), origin at $t_0$')
+ax.plot(xr, slope * xr + w_hat, 'k--', lw=1.0, label='OLS fitting')
+ax.set_xlabel('Reconstructed displacement $x$ (m), from $t_0$')
 ax.set_ylabel('$dx/dt = v$ (m/s)')
 ax.set_title('Crash-pulse OLS fitting')
-ax.grid(True, linestyle=':')
-ax.legend(fontsize='medium')
+ax.grid(True, linestyle=':', linewidth=0.5)
+ax.legend(fontsize=LEGEND_FONT, borderpad=0.35, labelspacing=0.25,
+          handletextpad=0.4)
 ax.margins(0)
-plt.tight_layout()
+plt.tight_layout(pad=0.4)
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+fig.savefig(os.path.join(OUTPUT_DIR, "crash_pulse_ols_fit.png"), dpi=200, bbox_inches="tight")
+print(f"\nSaved figure to {REL_OUTPUT_DIR}")
+
 plt.show()

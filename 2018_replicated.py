@@ -1,36 +1,14 @@
+import os
 import numpy as np
 import scipy.linalg as la
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
-"""
-FREE PARAMETERS SUMMARY TABLE
+REL_OUTPUT_DIR = "2018_replicated"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), REL_OUTPUT_DIR)
 
-Parameter   | Type  | Description / Usage
--------------------------------------------------------------------------------
-n / n_nodes | int   | Total number of vehicles (nodes) in the platoon (e.g., 50)
-epsilon     | float | Directional bias/coupling offset for asymmetric flow (e.g., 0.02)
-pinning     | float | Leader anchoring gain applied to the first vehicle (0.0 or 0.5)
-dynamics    | str   | Control architecture: 'RPAV' or 'RPRV'
-leader      | bool  | Flag indicating if a pinned leader exists (True/False)
--------------------------------------------------------------------------------
-"""
 
-# 1. GRAPH THEORETIC FOUNDATIONS
 def create_platoon_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np.ndarray:
-    """
-    Generates the tridiagonal asymmetric graph Laplacian matrix for the line graph.
-    
-    Parameters:
-    n (int): Number of vehicles (nodes) in the platoon. 
-    epsilon (float): The directional bias/coupling offset. Modifies the symmetric graph 
-                     to create directed information flow (1+epsilon forward, 1-epsilon backward).
-    pinning (float): The leader anchoring gain applied to the first vehicle. Creates an 
-                     absolute reference frame to prevent Brownian drift. Default is 0.0.
-                     
-    Returns:
-    L (ndarray): The n x n weighted graph Laplacian matrix.
-    """
     L = np.zeros((n, n))
     for i in range(n):
         if i == 0:
@@ -47,70 +25,40 @@ def create_platoon_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np
     return L
 
 
-# 2. SYSTEM DYNAMICS & H2 NORM EVALUATION
 def evaluate_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> np.ndarray:
-    """
-    Computes the squared H2 norm profile across all consecutive vehicle intervals.
-    
-    Parameters:
-    n (int): Number of nodes.
-    epsilon (float): Asymmetry bias (0.0 for symmetric, >0 for asymmetric).
-    dynamics (str): The control architecture string. 
-                    'RPAV' = Relative Position, Absolute Velocity.
-                    'RPRV' = Relative Position, Relative Velocity.
-    leader (bool): True if a pinned leader exists, False otherwise.
-    
-    Internal Variables:
-    alpha_pin (float): Positional leader pinning gain (set to 0.5 if leader is True).
-    beta_pin (float): Velocity leader pinning gain (set to 0.5 if leader is True).
-    L_alpha (ndarray): The graph Laplacian matrix for positional feedback.
-    L_beta (ndarray): The graph Laplacian matrix for velocity feedback (used in RPRV).
-    A (ndarray): The 2n x 2n closed-loop state-space system matrix defining vehicle physics.
-    B (ndarray): The 2n x n disturbance input matrix injecting white noise into acceleration.
-    W_c (ndarray): The Controllability Gramian. Solving the Lyapunov equation yields this 
-                   matrix, which represents the steady-state covariance of the system states.
-    h2_data (ndarray): The resulting array of squared H2 norms (gap variances) for each of 
-                       the n-1 vehicle pairs. Represents localized collision potential.
-    """
     alpha_pin = 0.5 if leader else 0.0
     beta_pin = 0.5 if leader else 0.0
-    
+
     L_alpha = create_platoon_laplacian(n, epsilon, alpha_pin)
     if not leader:
-        # 1e-7 regularization shifts the singular consensus mode slightly into 
-        # the left-half plane so the continuous algebraic Lyapunov equation (CALE) can solve.
-        L_alpha += 1e-7 * np.eye(n) 
-        
+        # regularize the singular consensus mode so the Lyapunov solve doesn't blow up
+        L_alpha += 1e-7 * np.eye(n)
+
     if dynamics == 'RPAV':
         A = np.block([[np.zeros((n, n)), np.eye(n)], [-L_alpha, -np.eye(n)]])
-    else: # RPRV dynamics
+    else:
         L_beta = create_platoon_laplacian(n, epsilon, beta_pin)
         if not leader:
             L_beta += 1e-7 * np.eye(n)
         A = np.block([[np.zeros((n, n)), np.eye(n)], [-L_alpha, -L_beta]])
-        
+
     B = np.block([[np.zeros((n, n))], [np.eye(n)]])
-    
-    # Solve standard Continuous Algebraic Lyapunov Equation (AW_c + W_cA^T + BB^T = 0)
     W_c = la.solve_continuous_lyapunov(A, -B @ B.T)
-    
+
     h2_data = np.zeros(n - 1)
     for i in range(n - 1):
-        # C is the output selector matrix extracting the relative distance between vehicle i and i+1
         C = np.zeros((1, 2 * n))
         C[0, i] = 1.0
         C[0, i + 1] = -1.0
         h2_data[i] = (C @ W_c @ C.T)[0, 0]
-        
+
     return h2_data
 
 
-# 3. MAIN SIMULATION EXECUTION
-n_nodes = 200       # Total number of vehicles in the platoon
-bias = 0.02        # Asymmetry parameter (epsilon). 0.02 means 2% forward bias.
-pairs_range = np.arange(1, n_nodes) # Spatial indices for the x-axis of the plot
+n_nodes = 50
+bias = 0.02
+pairs_range = np.arange(1, n_nodes)
 
-# Compute all 8 architectural scenarios
 rpav_sym_no = evaluate_h2_profile(n_nodes, 0.0, 'RPAV', False)
 rpav_asy_no = evaluate_h2_profile(n_nodes, bias, 'RPAV', False)
 rpav_sym_wL = evaluate_h2_profile(n_nodes, 0.0, 'RPAV', True)
@@ -121,8 +69,7 @@ rprv_asy_no = evaluate_h2_profile(n_nodes, bias, 'RPRV', False)
 rprv_sym_wL = evaluate_h2_profile(n_nodes, 0.0, 'RPRV', True)
 rprv_asy_wL = evaluate_h2_profile(n_nodes, bias, 'RPRV', True)
 
-
-# Store digitized data. Format: (Simulation Array, [Digitized i Vals], [Digitized Variance Vals])
+# (simulation array, digitized i values, digitized variance values)
 comparison_data = {
     "Sym RPAV w/L": (rpav_sym_wL, 
                      [2.34642, 6.92426, 11.97335, 16.61851, 20.85975, 25.23562, 29.67882, 33.44881, 37.55540, 48.93268],
@@ -151,20 +98,16 @@ comparison_data = {
 }
 
 
-# 4. PLOTTING
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
-# Define the exact tick increments from the paper (step of 6 from 1 to 49)
-x_ticks = np.arange(1, 51, 6) # Generates exactly: [1, 7, 13, 19, 25, 31, 37, 43, 49]
+x_ticks = np.arange(1, 51, 6)
 
 # --- (a) RPAV Control ---
-# Simulated Data (Lines only)
 ax1.plot(pairs_range, rpav_sym_no, '-', color='tab:blue', label='Sym RPAV no/L (Sim)')
 ax1.plot(pairs_range, rpav_asy_no, '-', color='tab:red', label='Asy RPAV no/L (Sim)')
 ax1.plot(pairs_range, rpav_sym_wL, '--', color='tab:green', label='Sym RPAV w/L (Sim)')
 ax1.plot(pairs_range, rpav_asy_wL, ':', color='k', label='Asy RPAV w/L (Sim)')
 
-# Digitized Data (Markers only - smaller, colored infill)
 ax1.plot(comparison_data["Sym RPAV no/L"][1], comparison_data["Sym RPAV no/L"][2], 's', color='tab:blue', markersize=5)
 ax1.plot(comparison_data["Asy RPAV no/L"][1], comparison_data["Asy RPAV no/L"][2], 'o', color='tab:red', markersize=5)
 ax1.plot(comparison_data["Sym RPAV w/L"][1], comparison_data["Sym RPAV w/L"][2], 'X', color='tab:green', markersize=5)
@@ -173,20 +116,18 @@ ax1.plot(comparison_data["Asy RPAV w/L"][1], comparison_data["Asy RPAV w/L"][2],
 ax1.set_xlabel('Vehicle Pair Along Line (Spatial Index $i$)')
 ax1.set_ylabel(r'Gap Variance / Collision Potential $||G_\alpha||_{H_2}^2$')
 ax1.set_title('(a) RPAV Control\n(Markers denote digitized data from Ji & Gayme results)', fontsize=10)
-ax1.set_xlim(1, 49)             # Tight boundaries: removes the border whitespace gap
-ax1.set_ylim(0.47, 0.51)         # Match paper y-range
-ax1.set_xticks(x_ticks)         # Force 1, 7, 13...49 increments
+ax1.set_xlim(1, 49)
+ax1.set_ylim(0.47, 0.51)
+ax1.set_xticks(x_ticks)
 ax1.legend(fontsize='small', ncol=2)
 ax1.grid(True, linestyle=':')
 
 # --- (b) RPRV Control ---
-# Simulated Data (Lines only)
 ax2.plot(pairs_range, rprv_sym_no, '-', color='tab:blue', label='Sym RPRV no/L (Sim)')
 ax2.plot(pairs_range, rprv_asy_no, '-', color='tab:red', label='Asy RPRV no/L (Sim)')
 ax2.plot(pairs_range, rprv_sym_wL, '--', color='tab:orange', label='Sym RPRV w/L (Sim)')
 ax2.plot(pairs_range, rprv_asy_wL, ':', color='k', label='Asy RPRV w/L (Sim)')
 
-# Digitized Data (Markers only - smaller, colored infill)
 ax2.plot(comparison_data["Sym RPRV no/L"][1], comparison_data["Sym RPRV no/L"][2], 's', color='tab:blue', markersize=5)
 ax2.plot(comparison_data["Asy RPRV no/L"][1], comparison_data["Asy RPRV no/L"][2], 'o', color='tab:red', markersize=5)
 ax2.plot(comparison_data["Sym RPRV w/L"][1], comparison_data["Sym RPRV w/L"][2], 'X', color='tab:orange', markersize=5)
@@ -195,47 +136,31 @@ ax2.plot(comparison_data["Asy RPRV w/L"][1], comparison_data["Asy RPRV w/L"][2],
 ax2.set_xlabel('Vehicle Pair Along Line (Spatial Index $i$)')
 ax2.set_ylabel(r'Gap Variance / Collision Potential $||G_{\alpha\beta}||_{H_2}^2$')
 ax2.set_title('(b) RPRV Control\n(Markers denote digitized data from Ji & Gayme results)', fontsize=10)
-ax2.set_xlim(1, 49)             # Tight boundaries: removes the border whitespace gap
-ax2.set_ylim(0, 25)              # Match paper y-range
-ax2.set_xticks(x_ticks)         # Force 1, 7, 13...49 increments
+ax2.set_xlim(1, 49)
+ax2.set_ylim(0, 25)
+ax2.set_xticks(x_ticks)
 ax2.legend(fontsize='small', ncol=2)
 ax2.grid(True, linestyle=':')
 
 plt.tight_layout()
-plt.show() # Code will pause here until the plot window is closed
 
-# 5. DIGITIZED VS. SIMULATED COMPARISON TABLE GENERATOR
-# NOTE: CLOSE PLOT WINDDOW TO SEE THE TABLE GENERATED IN TERMINAL
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+fig.savefig(os.path.join(OUTPUT_DIR, "h2_profile_comparison.png"), dpi=200, bbox_inches="tight")
+print(f"\nSaved figure to {REL_OUTPUT_DIR}")
 
-"""
-The Python simulation evaluates the H2 norm precisely at integer spatial indices (i = 1, 2, ..., 49).
-However, the digitized data extracted from the Ji & Gayme (2018) plots contains 
-fractional indices (e.g., i = 2.346) due to manual pixel mapping. 
+plt.show()
 
-To perform a strict 1:1 mathematical comparison, I cannot compare row-by-row. 
-Instead, I apply Cubic Spline Interpolation to the discrete Python output array. 
-This generates a continuous mathematical function representing our simulated curves, 
-allowing us to query our simulated variance at the exact fractional spatial 
-coordinates obtained from the paper.
-"""
-
+# digitized points sit at fractional indices (pixel-mapped from the paper's plots),
+# so compare against a cubic-spline interpolant of the simulated curve
 print(f"\n{'Control Architecture':<22} | {'Spatial Index i':<15} | {'Digitized Variance':<18} | {'Python Variance':<18}")
 print("-" * 81)
 
 for arch_name, (sim_array, i_vals, dig_vals) in comparison_data.items():
-    
-    # Create the cubic interpolation function for the current architecture
-    # fill_value="extrapolate" allows it to handle values slightly > 49 without throwing an error
     interp_func = interp1d(pairs_range, sim_array, kind='cubic', fill_value="extrapolate")
-    
+
     for i, dig_val in zip(i_vals, dig_vals):
-        # Calculate the exact Python value at the fractional index
         py_val = interp_func(i)
-        
-        # Print the formatted row (5 decimal places)
         print(f"{arch_name:<22} | {i:<15.5f} | {dig_val:<18.5f} | {py_val:<18.5f}")
-        
-        # Blank the architecture name out after the first row for clean table reading
-        arch_name = "" 
-    
+        arch_name = ""
+
     print("-" * 81)

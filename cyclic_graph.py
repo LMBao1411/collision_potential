@@ -1,10 +1,14 @@
+import os
 import numpy as np
 import scipy.linalg as la
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
-N_VALUES = (3, 10, 20, 50) 
+REL_OUTPUT_DIR = "cyclic_graph"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), REL_OUTPUT_DIR)
+
+N_VALUES = (3, 10, 20, 50)
 EPSILON = 0.02 
 PIN_GAIN = 0.5
 PANEL_W = 4.20 
@@ -50,14 +54,8 @@ WIDTHS = {"sym_unpinned": 0.8, "asy_unpinned": 1.0,
 
 
 def create_roundabout_laplacian(n: int, epsilon: float, pinning: float = 0.0) -> np.ndarray:
-    """
-    Constructs an n x n Laplacian matrix for a cyclic graph (roundabout) topology.
-    Forward edges have weight 1 - epsilon, backward edges have weight 1 + epsilon.
-    A pinning gain anchors the first node if specified, breaking perfect symmetry.
-    """
     L = np.zeros((n, n))
     for i in range(n):
-        # Modulo arithmetic strictly enforces the periodic boundary conditions
         prev_idx = (i - 1) % n
         next_idx = (i + 1) % n
 
@@ -65,29 +63,23 @@ def create_roundabout_laplacian(n: int, epsilon: float, pinning: float = 0.0) ->
         L[i, i] = 2.0
         L[i, next_idx] = -1.0 + epsilon
 
-    # Apply absolute reference anchoring to the first vehicle
     L[0, 0] += pinning
     return L
 
 
 def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bool) -> np.ndarray:
-    """ Computes the spatial H2 norm (gap variance) profile for a cyclic platoon."""
     alpha_pin = PIN_GAIN if leader else 0.0
     beta_pin = PIN_GAIN if leader else 0.0
 
     L_alpha = create_roundabout_laplacian(n, epsilon, alpha_pin)
-
-    # Regularization when the system lacks an absolute spatial anchor,
-    # preventing the CALE solver from failing due to the zero eigenvalue
     if not leader:
+        # break the zero eigenvalue so the Lyapunov solve doesn't fail
         L_alpha += 1e-7 * np.eye(n)
 
     if dynamics == 'RPAV':
-        # Absolute velocity damping (identity block)
         A = np.block([[np.zeros((n, n)), np.eye(n)],
                       [-L_alpha,         -np.eye(n)]])
     elif dynamics == 'RPRV':
-        # Relative velocity damping (velocity Laplacian block)
         L_beta = create_roundabout_laplacian(n, epsilon, beta_pin)
         if not leader:
             L_beta += 1e-7 * np.eye(n)
@@ -96,7 +88,6 @@ def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bo
     else:
         raise ValueError("Invalid dynamics specified. Choose 'RPAV' or 'RPRV'.")
 
-    # Disturbance input matrix B (acting exclusively on accelerations)
     B = np.block([[np.zeros((n, n))],
                   [np.eye(n)]])
 
@@ -105,12 +96,11 @@ def evaluate_cyclic_h2_profile(n: int, epsilon: float, dynamics: str, leader: bo
     for i in range(n):
         C = np.zeros((1, 2 * n))
         C[0, i] = 1.0
-        C[0, (i + 1) % n] = -1.0  # periodic wrap-around for the final gap
+        C[0, (i + 1) % n] = -1.0
         h2_data[i] = (C @ W_c @ C.T).item()
 
     return h2_data
 
-# helper functions to plot the graph
 
 def profiles(n: int, epsilon: float, dynamics: str) -> dict:
     return {
@@ -121,7 +111,6 @@ def profiles(n: int, epsilon: float, dynamics: str) -> dict:
     }
 
 def onebased_xticks(first: int, last: int, max_ticks: int = 5):
-    """Integer ticks on [first, last] that always include both endpoints."""
     span = last - first
     if span + 1 <= max_ticks:
         return np.arange(first, last + 1)
@@ -155,11 +144,13 @@ def draw_panel(ax, x, curves, title):
     ax.tick_params(width=0.6, length=2.5, pad=2.5)
 
 
-def make_figure(n: int, epsilon: float, show_legend: bool = False):
+def make_figure(n: int, epsilon: float, show_legend: bool = False, fig_num=None):
+    if fig_num is None:
+        fig_num = f"n = {n}"
     x = np.arange(1, n + 1)
     strip = (LEGEND_H + XLABEL_H) if show_legend else 0.0
     height = PANEL_H + strip
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(PANEL_W, height), layout="constrained", num=f"n = {n}")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(PANEL_W, height), layout="constrained", num=fig_num)
     if show_legend:
         frac = strip / height
         fig.get_layout_engine().set(rect=(0, frac, 1, 1 - frac))
@@ -182,4 +173,18 @@ def make_figure(n: int, epsilon: float, show_legend: bool = False):
 if __name__ == "__main__":
     for n in N_VALUES:
         make_figure(n, EPSILON, show_legend=False)
+
+    N_SWEEP = [10, 20, 50, 70]
+    EPS_SWEEP = [0.02, 0.05, 0.07, 0.10]
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"Size/epsilon sweep ({len(N_SWEEP) * len(EPS_SWEEP)} simulations):")
+    for n in N_SWEEP:
+        for eps in EPS_SWEEP:
+            fig = make_figure(n, eps, show_legend=False,
+                               fig_num=f"sweep n = {n}, eps = {eps}")
+            fname = f"roundabout_n={n}_eps={eps:.2f}.png"
+            fig.savefig(os.path.join(OUTPUT_DIR, fname), dpi=200, bbox_inches="tight")
+            plt.close(fig)
+            print(f"  saved {os.path.join(REL_OUTPUT_DIR, fname)}")
+
     plt.show()

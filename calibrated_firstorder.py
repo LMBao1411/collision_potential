@@ -1,8 +1,12 @@
+import os
 import numpy as np
 import scipy.linalg as la
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator, ScalarFormatter
+
+REL_OUTPUT_DIR = "calibrated_firstorder"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), REL_OUTPUT_DIR)
 
 N = 50
 EPSILON = 0.02
@@ -10,9 +14,9 @@ ALPHA = 6.20
 KAPPA = 0.50
 RHO = 1e-7     
 
-PANEL_W, PANEL_H = 6.20, 2.70
-LEGEND_H, XLABEL_H = 0.62, 0.06
-BASE_FONT, LEGEND_FONT, TITLE_PAD = 10, 8, 8.0
+PANEL_W, PANEL_H = 5.00, 2.60
+LEGEND_H, XLABEL_H = 0.0, 0.06
+BASE_FONT, LEGEND_FONT, TITLE_PAD = 12, 8, 4.0
 
 mpl.rcParams.update({
     "font.family": "serif",
@@ -21,8 +25,8 @@ mpl.rcParams.update({
     "font.size": BASE_FONT,
     "axes.titlesize": BASE_FONT,
     "axes.labelsize": BASE_FONT,
-    "xtick.labelsize": BASE_FONT,
-    "ytick.labelsize": BASE_FONT,
+    "xtick.labelsize": BASE_FONT - 1,
+    "ytick.labelsize": BASE_FONT - 1,
     "legend.fontsize": BASE_FONT,
     "lines.linewidth": 1.0,
     "axes.linewidth": 0.6,
@@ -30,7 +34,7 @@ mpl.rcParams.update({
     "figure.constrained_layout.use": True,
     "figure.constrained_layout.h_pad": 0.03,
     "figure.constrained_layout.w_pad": 0.05,
-    "figure.constrained_layout.wspace": 0.06,
+    "figure.constrained_layout.wspace": 0.10,
 })
 
 STYLES = {
@@ -49,7 +53,6 @@ WIDTHS = {"sym_unpinned": 0.8, "asy_unpinned": 1.0,
           "sym_pinned": 1.2, "asy_pinned": 1.4}
 
 
-# topologies
 def line_laplacian(n, eps, anchor=0.0):
     L = np.zeros((n, n))
     for i in range(n):
@@ -73,11 +76,9 @@ def cyclic_laplacian(n, eps, anchor=0.0):
     return L
 
 
-# dynamics
-def h2_profile(n, eps, topology, pinned):
-    """Per-gap H2 norm of the first order closed loop xdot = -L_alpha x + w."""
+def h2_profile(n, eps, topology, pinned, alpha=ALPHA):
     base = line_laplacian if topology == "line" else cyclic_laplacian
-    L_alpha = ALPHA * base(n, eps, 0.0)
+    L_alpha = alpha * base(n, eps, 0.0)
     if pinned:
         L_alpha[0, 0] += KAPPA
     else:
@@ -97,24 +98,17 @@ def h2_profile(n, eps, topology, pinned):
     return out
 
 
-def profiles(n, eps, topology):
+def profiles(n, eps, topology, alpha=ALPHA):
     return {
-        "sym_unpinned": h2_profile(n, 0.0, topology, False),
-        "asy_unpinned": h2_profile(n, eps, topology, False),
-        "sym_pinned":   h2_profile(n, 0.0, topology, True),
-        "asy_pinned":   h2_profile(n, eps, topology, True),
+        "sym_unpinned": h2_profile(n, 0.0, topology, False, alpha),
+        "asy_unpinned": h2_profile(n, eps, topology, False, alpha),
+        "sym_pinned":   h2_profile(n, 0.0, topology, True, alpha),
+        "asy_pinned":   h2_profile(n, eps, topology, True, alpha),
     }
 
-# analytical
 def ring_closed_form(n, eps, alpha=ALPHA):
-    """First order counterpart of Proposition 3 on the unpinned ring.
-
-    Mode m obeys xdot_m = -alpha*lambda_m x_m + w_m, whose stationary
-    variance is 1/(2 alpha a_m); the gap output weights mode m by
-    |1 - exp(i th_m)|^2 = a_m, so the a_m cancels and every mode
-    contributes the same 1/(2 alpha).  Hence
-        ||G_k||^2 = (1/n) sum_{m=2}^{n} 1/(2 alpha) = (n-1)/(2 n alpha),
-    identical at every gap k and independent of eps."""
+    # each mode contributes 1/(2 alpha) regardless of eps, so
+    # ||G_k||^2 = (n-1)/(2 n alpha) at every gap
     th = 2.0 * np.pi * np.arange(n) / n
     a = 2.0 - 2.0 * np.cos(th)
     m = slice(1, n)
@@ -128,7 +122,7 @@ def draw_panel(ax, x, curves, title):
             style["markevery"] = step
         ax.plot(x, y, linewidth=WIDTHS[key], **style)
     ax.set_title(title, pad=TITLE_PAD)
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=4))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
     fmt = ScalarFormatter(useOffset=True)
     fmt.set_powerlimits((-3, 4))
@@ -139,18 +133,19 @@ def draw_panel(ax, x, curves, title):
     ax.tick_params(width=0.6, length=2.5, pad=2.5)
 
 
-def make_figure(n, eps, show_legend=True):
+def make_figure(n, eps, alpha=ALPHA, show_legend=True, fig_num=None):
+    if fig_num is None:
+        fig_num = f"first order, n = {n}, alpha = {alpha}"
     strip = (LEGEND_H + XLABEL_H) if show_legend else 0.0
     height = PANEL_H + strip
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(PANEL_W, height),
-                                   layout="constrained",
-                                   num=f"first order, n = {n}")
+                                   layout="constrained", num=fig_num)
     if show_legend:
         frac = strip / height
         fig.get_layout_engine().set(rect=(0, frac, 1, 1 - frac))
 
-    draw_panel(ax1, np.arange(1, n), profiles(n, eps, "line"), "Line")
-    draw_panel(ax2, np.arange(n), profiles(n, eps, "cyc"), "Cyclic")
+    draw_panel(ax1, np.arange(1, n), profiles(n, eps, "line", alpha), "Line")
+    draw_panel(ax2, np.arange(1, n+1), profiles(n, eps, "cyc", alpha), "Cyclic")
 
     supx = fig.supxlabel(r"Vehicle pair index $i$")
     fig.supylabel(r"$\|G_i\|_{\mathcal{H}_2}^2$")
@@ -171,7 +166,6 @@ def make_figure(n, eps, show_legend=True):
     return fig
 
 
-# run
 if __name__ == "__main__":
     print("=" * 72)
     print(f"First order model, alpha = {ALPHA}, n = {N}, eps = {EPSILON}")
@@ -205,5 +199,19 @@ if __name__ == "__main__":
     for n in (3, 5, 10, 20, 50, 100, 200):
         print(f"{n:>5}{h2_profile(n, 0.02, 'cyc', False).mean():>16.6e}")
 
-    make_figure(N, EPSILON, show_legend=False)
+    make_figure(N, EPSILON, alpha=ALPHA, show_legend=False)
+
+    N_SWEEP = [10, 20, 50, 70]
+    ALPHA_SWEEP = [2.5, 4.5, 6.2, 8.5, 10.5]
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"\nSize/alpha sweep ({len(N_SWEEP) * len(ALPHA_SWEEP)} simulations):")
+    for n in N_SWEEP:
+        for a in ALPHA_SWEEP:
+            fig = make_figure(n, EPSILON, alpha=a, show_legend=False,
+                               fig_num=f"sweep n = {n}, alpha = {a}")
+            fname = f"firstorder_n={n}_alpha={a:.2f}.png"
+            fig.savefig(os.path.join(OUTPUT_DIR, fname), dpi=200, bbox_inches="tight")
+            plt.close(fig)
+            print(f"  saved {os.path.join(REL_OUTPUT_DIR, fname)}")
+
     plt.show()
